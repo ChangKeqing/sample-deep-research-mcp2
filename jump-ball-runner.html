@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Jump Ball Runner</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #87ceeb;
+    font-family: 'Comic Sans MS', cursive, sans-serif;
+    color: #fff;
+  }
+  #gameCanvas {
+    display: block;
+    background: linear-gradient(#87ceeb, #d0f4f7);
+  }
+  #ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 10;
+    font-size: 20px;
+    text-shadow: 1px 1px #000;
+  }
+  #retry {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 10px 20px;
+    font-size: 24px;
+    background: #ff5722;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    display: none;
+    border-radius: 8px;
+    box-shadow: 3px 3px 0 #c62828;
+  }
+  #retry:hover {
+    background: #ff8a50;
+  }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="ui">
+  Score: <span id="score">0</span> | High Score: <span id="highScore">0</span>
+</div>
+<button id="retry">Retry</button>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const highScoreEl = document.getElementById('highScore');
+const retryBtn = document.getElementById('retry');
+let width, height;
+
+function resize() {
+  width = canvas.width = window.innerWidth;
+  height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Parallax backgrounds
+const bgLayers = [
+  { speed: 0.2, color: '#a6e1fa', x: 0 },
+  { speed: 0.5, color: '#6ec6ff', x: 0 },
+  { speed: 1.0, color: '#2196f3', x: 0 }
+];
+
+// Player
+const player = {
+  x: 80,
+  y: 0,
+  radius: 25,
+  vy: 0,
+  jumpForce: -12,
+  color: '#ffeb3b',
+  eyeOffsetX: 8,
+  eyeOffsetY: -5,
+  eyeRadius: 4
+};
+
+// Obstacles
+const obstacles = [];
+let spawnTimer = 0;
+let spawnInterval = 1500;
+
+let score = 0;
+let highScore = +localStorage.getItem('jumpBallHighScore') || 0;
+highScoreEl.textContent = highScore;
+let gameOver = false;
+let speed = 6;
+let speedIncrement = 0.001; // increases every frame
+
+function playSound(type) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioContext();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  if (type === 'jump') o.frequency.value = 400;
+  if (type === 'hit') o.frequency.value = 120;
+  if (type === 'score') o.frequency.value = 700;
+  g.gain.setValueAtTime(0.2, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+  o.start();
+  o.stop(ctx.currentTime + 0.5);
+}
+
+function reset() {
+  obstacles.length = 0;
+  spawnTimer = 0;
+  score = 0;
+  speed = 6;
+  player.y = height - player.radius - 10;
+  player.vy = 0;
+  gameOver = false;
+  retryBtn.style.display = 'none';
+  loop(0);
+}
+
+function spawnObstacle() {
+  const size = 30 + Math.random() * 30;
+  obstacles.push({ x: width + size, y: height - size - 10, width: size, height: size, color: '#4caf50' });
+}
+
+function update(dt) {
+  if (gameOver) return;
+  speed += speedIncrement;
+  // Backgrounds
+  bgLayers.forEach(layer => {
+    layer.x -= layer.speed * speed * dt;
+    if (layer.x <= -width) layer.x = 0;
+  });
+
+  // Player physics
+  player.vy += 0.5; // gravity
+  player.y += player.vy;
+  if (player.y > height - player.radius - 10) {
+    player.y = height - player.radius - 10;
+    player.vy = 0;
+  }
+
+  // Obstacles
+  spawnTimer += dt * 1000;
+  if (spawnTimer > spawnInterval) {
+    spawnObstacle();
+    spawnTimer = 0;
+    spawnInterval = 1000 + Math.random() * 1000;
+  }
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const ob = obstacles[i];
+    ob.x -= speed;
+    if (ob.x + ob.width < 0) {
+      obstacles.splice(i, 1);
+      score++;
+      playSound('score');
+    } else if (ob.x < player.x + player.radius && ob.x + ob.width > player.x - player.radius &&
+               ob.y < player.y + player.radius && ob.y + ob.height > player.y - player.radius) {
+      gameOver = true;
+      playSound('hit');
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('jumpBallHighScore', highScore);
+      }
+      highScoreEl.textContent = highScore;
+      retryBtn.style.display = 'block';
+    }
+  }
+
+  scoreEl.textContent = score;
+}
+
+function draw() {
+  // Background layers
+  bgLayers.forEach(layer => {
+    ctx.fillStyle = layer.color;
+    ctx.fillRect(layer.x, 0, width, height);
+    ctx.fillRect(layer.x + width, 0, width, height);
+  });
+
+  // Ground
+  ctx.fillStyle = '#795548';
+  ctx.fillRect(0, height - 10, width, 10);
+
+  // Player (cartoon ball)
+  ctx.fillStyle = player.color;
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+  ctx.fill();
+  // eyes
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(player.x - player.eyeOffsetX, player.y + player.eyeOffsetY, player.eyeRadius, 0, Math.PI * 2);
+  ctx.arc(player.x + player.eyeOffsetX, player.y + player.eyeOffsetY, player.eyeRadius, 0, Math.PI * 2);
+  ctx.fill();
+  // smile
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(player.x, player.y + 5, 10, 0, Math.PI);
+  ctx.stroke();
+
+  // Obstacles
+  obstacles.forEach(ob => {
+    ctx.fillStyle = ob.color;
+    ctx.fillRect(ob.x, ob.y, ob.width, ob.height);
+  });
+}
+
+let last = 0;
+function loop(timestamp) {
+  const dt = (timestamp - last) / 1000;
+  last = timestamp;
+  update(dt);
+  ctx.clearRect(0, 0, width, height);
+  draw();
+  if (!gameOver) requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && player.vy === 0) {
+    player.vy = player.jumpForce;
+    playSound('jump');
+  }
+});
+canvas.addEventListener('click', () => {
+  if (player.vy === 0) {
+    player.vy = player.jumpForce;
+    playSound('jump');
+  }
+});
+
+retryBtn.addEventListener('click', () => reset());
+
+reset();
+</script>
+</body>
+</html>
